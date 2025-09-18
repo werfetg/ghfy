@@ -583,3 +583,221 @@ if (document.readyState === "complete" || document.readyState === "interactive")
 }
 
 })();
+
+// =============================
+// License Verification Popup with Device Management
+// =============================
+
+// =========================
+// Firebase Config
+// =========================
+const firebaseConfig = {
+  apiKey: "AIzaSy8m3iuH0de6K31q58DlDcm4RFsJfNTt0Y",
+  authDomain: "xsiam-8cd91.firebaseapp.com",
+  databaseURL: "https://xsiam-8cd91-default-rtdb.firebaseio.com",
+  projectId: "xsiam-8cd91",
+  storageBucket: "xsiam-8cd91.appspot.com",
+  messagingSenderId: "449795686178",
+  appId: "1:449795686178:web:67631b23b88be6a0eaef7b",
+  measurementId: "G-C987LSZV4G"
+};
+
+// =========================
+// Load Firebase dynamically
+// =========================
+function loadFirebase(callback) {
+  const appScript = document.createElement("script");
+  appScript.src = "https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js";
+  appScript.onload = () => {
+    const firestoreScript = document.createElement("script");
+    firestoreScript.src = "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js";
+    firestoreScript.onload = callback;
+    document.body.appendChild(firestoreScript);
+  };
+  document.body.appendChild(appScript);
+}
+
+// =========================
+// Create user panel
+// =========================
+function createUserPanel() {
+  const container = document.createElement("div");
+  container.id = "verifyCard";
+  container.style.cssText = `
+    position:fixed;
+    top:50%;
+    left:50%;
+    transform:translate(-50%, -50%);
+    background:#fff;
+    padding:30px;
+    border-radius:12px;
+    text-align:center;
+    width:360px;
+    box-shadow:0 15px 40px rgba(0,0,0,0.25);
+    font-family: 'Segoe UI', sans-serif;
+    z-index:9999;
+  `;
+
+  const title = document.createElement("h2");
+  title.innerHTML = `QX 414 TRADER BD<br><span style="font-size:14px;color:#555;cursor:pointer">@onlysell919</span>`;
+  title.style.cssText = `
+    color:#0d6efd;
+    font-size:22px;
+    margin-bottom:20px;
+    font-weight:600;
+  `;
+  title.onclick = () => { window.open("https://t.me/onlysell919", "_blank"); };
+  container.appendChild(title);
+
+  const subtitle = document.createElement("p");
+  subtitle.innerText = "License Verification";
+  subtitle.style.cssText = `color:#0d6efd;margin-bottom:20px;font-size:14px;`;
+  container.appendChild(subtitle);
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.placeholder = "Enter license key";
+  input.style.cssText = `
+    width:100%;
+    padding:12px 15px;
+    margin-bottom:15px;
+    border:1.8px solid #0d6efd;
+    border-radius:8px;
+    font-size:14px;
+    outline:none;
+    color:#333;
+  `;
+  container.appendChild(input);
+
+  const button = document.createElement("button");
+  button.innerText = "Verify License";
+  button.style.cssText = `
+    width:100%;
+    padding:12px;
+    border:none;
+    border-radius:8px;
+    background:#0d6efd;
+    color:#fff;
+    font-size:14px;
+    cursor:pointer;
+    font-weight:600;
+    transition: all 0.3s ease;
+    margin-bottom:10px;
+  `;
+  button.onmouseover = () => { button.style.background="#0b5ed7"; button.style.transform="scale(1.03)"; };
+  button.onmouseout = () => { button.style.background="#0d6efd"; button.style.transform="scale(1)"; };
+  container.appendChild(button);
+
+  const message = document.createElement("div");
+  message.id = "message";
+  message.style.cssText = `margin-bottom:10px;font-weight:500;font-size:14px;`;
+  container.appendChild(message);
+
+  const activeDevicesDisplay = document.createElement("div");
+  activeDevicesDisplay.id = "activeDevicesDisplay";
+  activeDevicesDisplay.style.cssText = `font-weight:500;color:#ffc107;font-size:13px;`;
+  container.appendChild(activeDevicesDisplay);
+
+  // Unique device ID (fixed for same browser/device)
+  let uniqueDeviceID = localStorage.getItem("uniqueDeviceID");
+  if (!uniqueDeviceID) {
+    uniqueDeviceID = `dev_${Math.random().toString(36).substring(2,10)}_${Date.now()}`;
+    localStorage.setItem("uniqueDeviceID", uniqueDeviceID);
+  }
+
+  const deviceId = document.createElement("div");
+  deviceId.innerText = `Device ID: ${uniqueDeviceID}`;
+  deviceId.style.cssText = `font-size:12px;color:#999;margin-top:15px;`;
+  container.appendChild(deviceId);
+
+  document.body.appendChild(container);
+  return { input, button, message, container, activeDevicesDisplay, uniqueDeviceID };
+}
+
+// =========================
+// License verification logic
+// =========================
+function initLicenseVerification() {
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
+
+  const { input, button, message, container, activeDevicesDisplay, uniqueDeviceID } = createUserPanel();
+
+  button.addEventListener("click", function() {
+    const licenseKey = input.value.trim();
+    message.innerHTML = "";
+    activeDevicesDisplay.innerHTML = "";
+    if (!licenseKey) {
+      message.innerHTML = "Please enter a license key.";
+      message.style.color = "#e74c3c";
+      return;
+    }
+
+    db.collection("licenses")
+      .where("licenseKey", "==", licenseKey)
+      .get()
+      .then(function(querySnapshot) {
+        if (querySnapshot.empty) {
+          message.innerHTML = "Invalid license!";
+          message.style.color = "#e74c3c";
+        } else {
+          querySnapshot.forEach(async (doc) => {
+            const lic = doc.data();
+            const id = doc.id;
+
+            if(lic.status === "Blocked") {
+              message.innerHTML = "License is blocked!";
+              message.style.color = "#e74c3c";
+              activeDevicesDisplay.innerHTML = `Active Devices: ${lic.devices?.length || 0} / ${lic.deviceLimit}`;
+              return;
+            }
+
+            let deviceList = lic.devices || [];
+
+            // যদি একই device আবার ভেরিফাই করে → ডুপ্লিকেট এড হবে না
+            if (!deviceList.includes(uniqueDeviceID)) {
+              deviceList.push(uniqueDeviceID);
+            }
+
+            // Active devices count হবে deviceList এর length
+            let updatedDevices = deviceList.length;
+            let newStatus = (updatedDevices > lic.deviceLimit) ? "Blocked" : "Active";
+
+            if(newStatus === "Blocked") {
+              message.innerHTML = "Device limit exceeded! License blocked.";
+              message.style.color = "#e74c3c";
+            } else {
+              message.innerHTML = "License Verified!";
+              message.style.color = "#2ecc71";
+            }
+
+            await db.collection("licenses").doc(id).update({
+              activeDevices: updatedDevices,
+              status: newStatus,
+              devices: deviceList
+            });
+
+            activeDevicesDisplay.innerHTML = `Active Devices: ${updatedDevices} / ${lic.deviceLimit}`;
+
+            if(newStatus === "Active") {
+              setTimeout(() => { container.remove(); }, 1000);
+            }
+          });
+        }
+      })
+      .catch(function(err) {
+        console.error(err);
+        message.innerHTML = "Error verifying license.";
+        message.style.color = "#e74c3c";
+      });
+  });
+
+  input.addEventListener("keydown", function(e) {
+    if (e.key === "Enter") { e.preventDefault(); button.click(); }
+  });
+}
+
+// =========================
+// Initialize
+// =========================
+loadFirebase(initLicenseVerification);
