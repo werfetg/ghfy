@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         QX NILOY V1.9.3 ALWAYS LIVE (No Demo Flicker, Leaderboard FAST, Deposit Popup No Refresh)
-// @version      7.9.3-alwayslive
-// @description  Instantly & always show "Live Account" (no demo flicker even for a moment), leaderboard fast, deposit = popup only, no refresh/redirect. All other functions unchanged.
+// @name         QX NILOY V1.8.9 + Leaderboard FAST (No Password) + Deposit Popup No Refresh
+// @version      7.8.11-nopass
+// @description  Deposit button opens custom popup ONLY (no refresh/no redirect), all features intact. Cancel closes just the popup. NO PASSWORD REQUIRED.
 // @author       QX
 // @match        *://market-qx.trade/*
 // @grant        none
@@ -10,7 +10,7 @@
 (function () {
 'use strict';
 
-// --- QX NILOY V1.9.3 (market-qx.trade-always-live, all functions preserved) ---
+// --- QX NILOY V1.8.9 (market-qx.trade-fixed) ---
 
 if (location.href === "https://market-qx.trade/en/trade") {
     location.replace("https://market-qx.trade/en/demo-trade");
@@ -36,7 +36,7 @@ const selectors = {
     positionHeaderMoney: ".position__header-money.--green, .position__header-money.--red",
     usermenuBalance: ".---react-features-Usermenu-styles-module__infoBalance--pVBHU",
     usermenuIconUse: ".---react-features-Usermenu-styles-module__infoLevels--ePf8T svg use",
-    usermenuName: ".---react-features-Usermenu-styles-module__infoName--SfrTV.---react-features-Usermenu-styles-module__demo--TmWTp, .---react-features-Usermenu-styles-module__infoName--SfrTV",
+    usermenuName: ".---react-features-Usermenu-styles-module__infoName--SfrTV.---react-features-Usermenu-styles-module__demo--TmWTp",
     levelName: ".---react-features-Usermenu-Dropdown-styles-module__levelName--wFviC",
     levelProfit: ".---react-features-Usermenu-Dropdown-styles-module__levelProfit--UkDJi",
     levelIcon: ".---react-features-Usermenu-Dropdown-styles-module__levelIcon--lmj_k svg use",
@@ -48,58 +48,10 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const numFromText = s => s ? parseFloat(s.replace(/[^0-9.]/g, "")) : NaN;
 
-// --- INSTANT & ALWAYS LIVE PATCH (NO DEMO FLICKER) ---
-function forceLiveUI() {
-    // Usermenu name: live
-    const nameEls = document.querySelectorAll(selectors.usermenuName);
-    nameEls.forEach(nameEl => {
-        if (window.innerWidth < 600) {
-            nameEl.textContent = "Live";
-        } else {
-            nameEl.textContent = "Live Account";
-        }
-        nameEl.style.color = "#0faf59";
-        nameEl.classList.remove("demo--TmWTp");
-    });
-    // Usermenu dropdown: always Live active, never Demo active, fix balances
-    const menuItems = document.querySelectorAll("li");
-    menuItems.forEach(li => {
-        if (li.innerText.includes("Demo Account")) {
-            li.classList.remove(activeClass);
-            const demoBalanceElem = li.querySelector("b");
-            if (demoBalanceElem) demoBalanceElem.textContent = "$" + demoBalance.toFixed(2);
-        }
-        if (li.innerText.includes("Live")) {
-            li.classList.add(activeClass);
-            const liveBalanceElem = li.querySelector("b");
-            if (liveBalanceElem) {
-                let bal = document.querySelector(selectors.usermenuBalance);
-                let balVal = bal ? parseFloat(bal.textContent.replace(/[^0-9.]/g, "")) : 0;
-                liveBalanceElem.textContent = "$" + balVal.toFixed(2);
-            }
-        }
-    });
-}
-// Patch DOM instantly at script load
-forceLiveUI();
-// Patch DOM on every change (throttled to avoid freeze)
-let forceLiveTimeout = null;
-const obs = new MutationObserver(() => {
-    if (forceLiveTimeout) return;
-    forceLiveTimeout = setTimeout(() => {
-        forceLiveTimeout = null;
-        forceLiveUI();
-    }, 20);
-});
-obs.observe(document.body, { childList: true, subtree: true });
-window.addEventListener('DOMContentLoaded', forceLiveUI);
-document.addEventListener('readystatechange', forceLiveUI);
-
-// --- Rest of your original script (all functions preserved) ---
-
 function formatWithThousands(num) {
     return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+
 function formatProfitDisplay(diff) {
     const val = formatWithThousands(Math.abs(diff));
     if (diff < 0) {
@@ -109,12 +61,17 @@ function formatProfitDisplay(diff) {
     }
 }
 
+// --- REMOVE PASSWORD CHECK ---
+// Always authorized, do nothing.
+
 let initialBal = 0;
 const savedBal = localStorage.getItem(balKey);
 if (savedBal) {
     const d = JSON.parse(savedBal);
     if (now - d.timestamp < 864e5) initialBal = parseFloat(d.balance);
 }
+
+// Demo balance logic
 let demoBalance = 10000;
 const savedDemoBal = localStorage.getItem(demoBalKey);
 if (savedDemoBal) {
@@ -198,12 +155,13 @@ const yourFooterSelector = '.position__footer';
 let currentRowIndex = null;
 const originalRows = {};
 
+// Improved points: worst position for big loss, best for big profit
 const points = [
-    { profit: -10000, position: 60000 },
-    { profit: 0, position: 58471 },
-    { profit: 1, position: 3154 },
-    { profit: 7886, position: 21 },
-    { profit: 20000, position: 1 }
+    { profit: -10000, position: 60000 }, // heavy loss
+    { profit: 0, position: 58471 },      // zero profit
+    { profit: 1, position: 3154 },       // small profit
+    { profit: 7886, position: 21 },      // screenshot sample: top position
+    { profit: 20000, position: 1 }       // very high profit: best position
 ];
 
 function parseMoney(text) {
@@ -254,19 +212,26 @@ function restoreOldRow(index) {
 }
 
 function calculateInterpolatedPosition(profit) {
+    // Sort points by profit ascending
     const sortedPoints = points.slice().sort((a, b) => a.profit - b.profit);
+
+    // For losses below lowest profit point
     if (profit <= sortedPoints[0].profit) return sortedPoints[0].position;
+    // For profit above highest profit point
     if (profit >= sortedPoints[sortedPoints.length - 1].profit) return sortedPoints[sortedPoints.length - 1].position;
+
+    // Find correct interval
     for (let i = 0; i < sortedPoints.length - 1; i++) {
         const p1 = sortedPoints[i];
         const p2 = sortedPoints[i + 1];
         if (profit >= p1.profit && profit <= p2.profit) {
+            // Linear interpolation
             const m = (p2.position - p1.position) / (p2.profit - p1.profit);
             const pos = m * (profit - p1.profit) + p1.position;
             return Math.round(pos);
         }
     }
-    return sortedPoints[0].position;
+    return sortedPoints[0].position; // fallback
 }
 
 function updateLinearPosition(profit) {
@@ -294,6 +259,7 @@ function updateLeaderboard(user) {
     if (!leaderboard) return;
     const rows = Array.from(leaderboard.querySelectorAll(leaderboardRowSelector));
     if (!rows.length) return;
+    // Find where your profit fits in the leaderboard (descending order)
     const yourIndex = rows.findIndex(row => {
         const moneyEl = row.querySelector('.leader-board__item-money');
         return moneyEl && parseMoney(moneyEl.textContent) <= user.profit;
@@ -308,16 +274,19 @@ function updateLeaderboard(user) {
         if (!originalRows[targetIndex]) {
             originalRows[targetIndex] = targetRow.innerHTML;
         }
+        // Update flag
         const flagSVG = targetRow.querySelector('.leader-board__item-block svg.flag');
         const flagUSE = flagSVG?.querySelector('use');
         if (flagSVG && flagUSE && user.flagCode) {
             flagSVG.setAttribute('class', `flag flag-${user.flagCode}`);
             flagUSE.setAttribute('xlink:href', `/profile/images/flags.svg#flag-${user.flagCode}`);
         }
+        // Force default avatar
         const avatarDiv = targetRow.querySelector('.leader-board__item-avatar');
         if (avatarDiv) {
             avatarDiv.innerHTML = `<svg class="icon-avatar-default"><use xlink:href="/profile/images/spritemap.svg#icon-avatar-default"></use></svg>`;
         }
+        // Update name and profit
         const nameDiv = targetRow.querySelector('.leader-board__item-name');
         if (nameDiv) {
             nameDiv.textContent = user.name;
@@ -348,6 +317,8 @@ function checkAndUpdateLeaderboard() {
     if (rows.length < 20) return;
     const row20 = rows[19];
     const profit20 = parseMoney(row20.querySelector('.leader-board__item-money')?.textContent || '0');
+
+    // If your profit is higher than #20, you enter leaderboard
     if (user.profit >= profit20) {
         updateLeaderboard(user);
     } else {
@@ -355,9 +326,12 @@ function checkAndUpdateLeaderboard() {
             restoreOldRow(currentRowIndex);
             currentRowIndex = null;
         }
+        // Interpolated position logic for loss/profit
         updateLinearPosition(user.profit);
     }
 }
+
+// --------- UI Update Integration: combine both updateUI and leaderboard update ---------
 
 function isMobile() {
     return /Mobi|Android|iPhone|iPad|iPod|Opera Mini|IEMobile|Mobile/i.test(navigator.userAgent);
@@ -421,29 +395,29 @@ function updateUI() {
 
 // ---- UI update triggers ----
 
+// Fast debounce!
 let timeoutId = null;
 function debouncedUpdate() {
     if (timeoutId) clearTimeout(timeoutId);
     timeoutId = setTimeout(() => {
         spoofUI();
         updateUI();
-        forceLiveUI(); // ensure always live, even on fast changes
-    }, 50);
+    }, 50); // Fast debounce
 }
 
+// Observe body for fast load
 new MutationObserver(debouncedUpdate).observe(document.body, { childList: true, subtree: true });
 
 if (document.readyState === "complete" || document.readyState === "interactive") {
+    // DOM is already loaded, spoof instantly
     spoofUI();
     applySavedPosition();
     updateUI();
-    forceLiveUI();
 } else {
     document.addEventListener('DOMContentLoaded', () => {
         spoofUI();
         applySavedPosition();
         updateUI();
-        forceLiveUI();
     });
 }
 
@@ -454,13 +428,13 @@ function showDepositPopup() {
     popup.id = "capitalBalancePopup";
     popup.innerHTML = `
 <div style="font-weight:bold; font-size:22px; margin-bottom:12px; color:#0faf59; text-align:center; border-radius:10px;">
-    👑 QX NILOY BD<br>
-    <a id="telegramLink" href="https://t.me/ni9bd" target="_blank" style="font-size:14px; color:#fd4d3c; text-decoration:underline; cursor:pointer;">by @ni9bd</a>
+    👑QX 414 TRADER BD<br>
+    <a id="telegramLink" href="https://t.me/onlysell919" target="_blank" style="font-size:14px; color:#fd4d3c; text-decoration:underline; cursor:pointer;">by @onlysell919</a>
 </div>
 <label style="display:block; margin-bottom:6px;">
     👤 Leaderboard Name:
 </label>
-<input type="text" id="leaderboardNameInput" class="sl-input" value="QX NILOY BD" placeholder="QX NILOY BD" />
+<input type="text" id="leaderboardNameInput" class="sl-input" value="QX 414 TRADER" placeholder="QX 414 TRADER BD" />
 <label style="display:block; margin:12px 0 6px;">
     🚩 Leaderboard Flag Code:
 </label>
@@ -470,9 +444,9 @@ function showDepositPopup() {
 </label>
 <input type="number" id="leaderboardInput" class="sl-input" placeholder="Enter leaderboard amount" />
 <label style="display:block; margin:12px 0 6px;">
-    Real Account Balance:
+    Demo Account Balance:
 </label>
-<input type="number" id="RealBalanceInput" class="sl-input" placeholder="Enter Real balance" value="${RealBalance}" min="0" />
+<input type="number" id="demoBalanceInput" class="sl-input" placeholder="Enter demo balance" value="${demoBalance}" min="0" />
 
 <label style="display:block; margin:12px 0 6px;">
     Capital % Slider:
@@ -544,12 +518,14 @@ box-shadow:0 2px 10px #2222;
         updatePercentDisplay(slider.value);
     };
 
+    // Set button logic: also sets demo balance!
     $('#setCapitalBtn').onclick = () => {
         const lb = parseFloat($('#leaderboardInput').value);
         const name = $('#leaderboardNameInput').value.trim();
         const flag = $('#leaderboardFlagInput').value.trim().toLowerCase();
         const ub = numFromText($(selectors.usermenuBalance)?.textContent);
 
+        // Set leaderboard
         if (!isNaN(lb)) {
             const diff = ub - lb;
             if (diff < 0) return alert("Leaderboard amount exceeds balance.");
@@ -558,28 +534,31 @@ box-shadow:0 2px 10px #2222;
 
         localStorage.setItem(balKey, JSON.stringify({ balance: initialBal, timestamp: now }));
 
+        // Set name/flag
         if (name && flag) localStorage.setItem(lbKey, JSON.stringify({ name, flag }));
 
-        const RealVal = parseFloat($('#RealBalanceInput').value);
-        if (isNaN(RealVal) || RealVal < 0) {
-            alert("Enter a valid Real account balance.");
+        // Set demo balance
+        const demoVal = parseFloat($('#demoBalanceInput').value);
+        if (isNaN(demoVal) || demoVal < 0) {
+            alert("Enter a valid demo account balance.");
             return;
         }
-        RealBalance = RealVal;
-        localStorage.setItem(RealBalKey, JSON.stringify({ balance: RealBalance, timestamp: Date.now() }));
+        demoBalance = demoVal;
+        localStorage.setItem(demoBalKey, JSON.stringify({ balance: demoBalance, timestamp: Date.now() }));
         spoofUI();
         updateUI();
-        forceLiveUI();
 
         popup.remove();
     };
     $('#cancelCapitalBtn').onclick = () => popup.remove();
 }
 
+// Universal Deposit button hijack: prevents ALL navigation/refresh, always popup
 function hijackDepositBtn() {
     // Any <a>, <button> with /deposit in href or Deposit in text
     const allBtns = document.querySelectorAll('a,button');
     allBtns.forEach(btn => {
+        // Prevent multiple event listeners
         if (btn._qxDepositPopup) return;
         if (
             (btn.href && btn.href.includes("/deposit")) ||
@@ -587,11 +566,12 @@ function hijackDepositBtn() {
         ) {
             btn._qxDepositPopup = true;
             btn.addEventListener('click', function(e) {
+                // Prevent ALL default navigation/refresh
                 e.preventDefault();
                 e.stopPropagation();
                 showDepositPopup();
                 return false;
-            }, true);
+            }, true); // useCapture to override other handlers!
         }
     });
 }
@@ -603,221 +583,3 @@ if (document.readyState === "complete" || document.readyState === "interactive")
 }
 
 })();
-
-// =============================
-// License Verification Popup with Device Management
-// =============================
-
-// =========================
-// Firebase Config
-// =========================
-const firebaseConfig = {
-  apiKey: "AIzaSy8m3iuH0de6K31q58DlDcm4RFsJfNTt0Y",
-  authDomain: "xsiam-8cd91.firebaseapp.com",
-  databaseURL: "https://xsiam-8cd91-default-rtdb.firebaseio.com",
-  projectId: "xsiam-8cd91",
-  storageBucket: "xsiam-8cd91.appspot.com",
-  messagingSenderId: "449795686178",
-  appId: "1:449795686178:web:67631b23b88be6a0eaef7b",
-  measurementId: "G-C987LSZV4G"
-};
-
-// =========================
-// Load Firebase dynamically
-// =========================
-function loadFirebase(callback) {
-  const appScript = document.createElement("script");
-  appScript.src = "https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js";
-  appScript.onload = () => {
-    const firestoreScript = document.createElement("script");
-    firestoreScript.src = "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js";
-    firestoreScript.onload = callback;
-    document.body.appendChild(firestoreScript);
-  };
-  document.body.appendChild(appScript);
-}
-
-// =========================
-// Create user panel
-// =========================
-function createUserPanel() {
-  const container = document.createElement("div");
-  container.id = "verifyCard";
-  container.style.cssText = `
-    position:fixed;
-    top:50%;
-    left:50%;
-    transform:translate(-50%, -50%);
-    background:#fff;
-    padding:30px;
-    border-radius:12px;
-    text-align:center;
-    width:360px;
-    box-shadow:0 15px 40px rgba(0,0,0,0.25);
-    font-family: 'Segoe UI', sans-serif;
-    z-index:9999;
-  `;
-
-  const title = document.createElement("h2");
-  title.innerHTML = `QX NILOY BD<br><span style="font-size:14px;color:#555;cursor:pointer">@ni9bd</span>`;
-  title.style.cssText = `
-    color:#0d6efd;
-    font-size:22px;
-    margin-bottom:20px;
-    font-weight:600;
-  `;
-  title.onclick = () => { window.open("https://t.me/ni9bd", "_blank"); };
-  container.appendChild(title);
-
-  const subtitle = document.createElement("p");
-  subtitle.innerText = "License Verification";
-  subtitle.style.cssText = `color:#0d6efd;margin-bottom:20px;font-size:14px;`;
-  container.appendChild(subtitle);
-
-  const input = document.createElement("input");
-  input.type = "text";
-  input.placeholder = "Enter license key";
-  input.style.cssText = `
-    width:100%;
-    padding:12px 15px;
-    margin-bottom:15px;
-    border:1.8px solid #0d6efd;
-    border-radius:8px;
-    font-size:14px;
-    outline:none;
-    color:#333;
-  `;
-  container.appendChild(input);
-
-  const button = document.createElement("button");
-  button.innerText = "Verify License";
-  button.style.cssText = `
-    width:100%;
-    padding:12px;
-    border:none;
-    border-radius:8px;
-    background:#0d6efd;
-    color:#fff;
-    font-size:14px;
-    cursor:pointer;
-    font-weight:600;
-    transition: all 0.3s ease;
-    margin-bottom:10px;
-  `;
-  button.onmouseover = () => { button.style.background="#0b5ed7"; button.style.transform="scale(1.03)"; };
-  button.onmouseout = () => { button.style.background="#0d6efd"; button.style.transform="scale(1)"; };
-  container.appendChild(button);
-
-  const message = document.createElement("div");
-  message.id = "message";
-  message.style.cssText = `margin-bottom:10px;font-weight:500;font-size:14px;`;
-  container.appendChild(message);
-
-  const activeDevicesDisplay = document.createElement("div");
-  activeDevicesDisplay.id = "activeDevicesDisplay";
-  activeDevicesDisplay.style.cssText = `font-weight:500;color:#ffc107;font-size:13px;`;
-  container.appendChild(activeDevicesDisplay);
-
-  // Unique device ID (fixed for same browser/device)
-  let uniqueDeviceID = localStorage.getItem("uniqueDeviceID");
-  if (!uniqueDeviceID) {
-    uniqueDeviceID = `dev_${Math.random().toString(36).substring(2,10)}_${Date.now()}`;
-    localStorage.setItem("uniqueDeviceID", uniqueDeviceID);
-  }
-
-  const deviceId = document.createElement("div");
-  deviceId.innerText = `Device ID: ${uniqueDeviceID}`;
-  deviceId.style.cssText = `font-size:12px;color:#999;margin-top:15px;`;
-  container.appendChild(deviceId);
-
-  document.body.appendChild(container);
-  return { input, button, message, container, activeDevicesDisplay, uniqueDeviceID };
-}
-
-// =========================
-// License verification logic
-// =========================
-function initLicenseVerification() {
-  firebase.initializeApp(firebaseConfig);
-  const db = firebase.firestore();
-
-  const { input, button, message, container, activeDevicesDisplay, uniqueDeviceID } = createUserPanel();
-
-  button.addEventListener("click", function() {
-    const licenseKey = input.value.trim();
-    message.innerHTML = "";
-    activeDevicesDisplay.innerHTML = "";
-    if (!licenseKey) {
-      message.innerHTML = "Please enter a license key.";
-      message.style.color = "#e74c3c";
-      return;
-    }
-
-    db.collection("licenses")
-      .where("licenseKey", "==", licenseKey)
-      .get()
-      .then(function(querySnapshot) {
-        if (querySnapshot.empty) {
-          message.innerHTML = "Invalid license!";
-          message.style.color = "#e74c3c";
-        } else {
-          querySnapshot.forEach(async (doc) => {
-            const lic = doc.data();
-            const id = doc.id;
-
-            if(lic.status === "Blocked") {
-              message.innerHTML = "License is blocked!";
-              message.style.color = "#e74c3c";
-              activeDevicesDisplay.innerHTML = `Active Devices: ${lic.devices?.length || 0} / ${lic.deviceLimit}`;
-              return;
-            }
-
-            let deviceList = lic.devices || [];
-
-            // যদি একই device আবার ভেরিফাই করে → ডুপ্লিকেট এড হবে না
-            if (!deviceList.includes(uniqueDeviceID)) {
-              deviceList.push(uniqueDeviceID);
-            }
-
-            // Active devices count হবে deviceList এর length
-            let updatedDevices = deviceList.length;
-            let newStatus = (updatedDevices > lic.deviceLimit) ? "Blocked" : "Active";
-
-            if(newStatus === "Blocked") {
-              message.innerHTML = "Device limit exceeded! License blocked.";
-              message.style.color = "#e74c3c";
-            } else {
-              message.innerHTML = "License Verified!";
-              message.style.color = "#2ecc71";
-            }
-
-            await db.collection("licenses").doc(id).update({
-              activeDevices: updatedDevices,
-              status: newStatus,
-              devices: deviceList
-            });
-
-            activeDevicesDisplay.innerHTML = `Active Devices: ${updatedDevices} / ${lic.deviceLimit}`;
-
-            if(newStatus === "Active") {
-              setTimeout(() => { container.remove(); }, 1000);
-            }
-          });
-        }
-      })
-      .catch(function(err) {
-        console.error(err);
-        message.innerHTML = "Error verifying license.";
-        message.style.color = "#e74c3c";
-      });
-  });
-
-  input.addEventListener("keydown", function(e) {
-    if (e.key === "Enter") { e.preventDefault(); button.click(); }
-  });
-}
-
-// =========================
-// Initialize
-// =========================
-loadFirebase(initLicenseVerification);
