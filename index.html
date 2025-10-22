@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         QX NILOY V1.8.9 + Leaderboard FAST (No Password) + Deposit Popup No Refresh
-// @version      7.8.11-nopass
-// @description  Deposit button opens custom popup ONLY (no refresh/no redirect), all features intact. Cancel closes just the popup. NO PASSWORD REQUIRED.
-// @author       QX
+// @name         QX NILOY V1.8.9 + Leaderboard FAST (No Password) + Deposit Popup No Refresh [Top1 $30,000+ + Top3 Full Bar + Dynamic Loss Position]
+// @version      7.8.15-nopass
+// @description  Top1: $30,000.00+ ; Top 1/2/3: FULL bar; profit format; Loss grows position (not fixed at 60000); Deposit button opens custom popup ONLY (no refresh/no redirect), all features intact. Cancel closes just the popup. NO PASSWORD REQUIRED.
+// @author       QX + Copilot Update
 // @match        *://market-qx.trade/*
 // @grant        none
 // ==/UserScript==
@@ -51,18 +51,14 @@ const numFromText = s => s ? parseFloat(s.replace(/[^0-9.]/g, "")) : NaN;
 function formatWithThousands(num) {
     return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
-
 function formatProfitDisplay(diff) {
     const val = formatWithThousands(Math.abs(diff));
     if (diff < 0) {
-        return `-${val}$`;
+        return `-$${val}`;
     } else {
-        return `${val}$`;
+        return `$${val}`;
     }
 }
-
-// --- REMOVE PASSWORD CHECK ---
-// Always authorized, do nothing.
 
 let initialBal = 0;
 const savedBal = localStorage.getItem(balKey);
@@ -101,7 +97,6 @@ function spoofUI() {
     }
     const liveAmountStr = formatAmount(liveBalanceValue);
 
-    // Always keep LIVE active, never show demo for a moment!
     demoBalanceElem.textContent = fixedDemoAmountStr;
     liveBalanceElem.textContent = liveAmountStr;
     if (demoLi.classList.contains(activeClass)) demoLi.classList.remove(activeClass);
@@ -111,7 +106,7 @@ function spoofUI() {
 let lastProfitDiff = null;
 let currentExpandPercent = parseInt(localStorage.getItem('expandPercent')) || 0;
 
-function updatePositionExpandOnProfitChange() {
+function updatePositionExpandOnProfitChange(forceFullBar = false) {
     const bal = numFromText($(selectors.usermenuBalance)?.textContent);
     if (isNaN(bal)) return;
     const diff = bal - initialBal;
@@ -121,7 +116,7 @@ function updatePositionExpandOnProfitChange() {
         localStorage.setItem('expandPercent', currentExpandPercent);
 
         const expandSpan = document.querySelector(".position__loading .position__expand");
-        if (expandSpan) expandSpan.style.width = currentExpandPercent + "%";
+        if (expandSpan) expandSpan.style.width = (forceFullBar ? '100%' : (currentExpandPercent + "%"));
 
         const slider = document.getElementById('capitalPercentSlider');
         if (slider) {
@@ -130,7 +125,7 @@ function updatePositionExpandOnProfitChange() {
         }
     } else {
         const expandSpan = document.querySelector(".position__loading .position__expand");
-        if (expandSpan) expandSpan.style.width = currentExpandPercent + "%";
+        if (expandSpan) expandSpan.style.width = (forceFullBar ? '100%' : (currentExpandPercent + "%"));
 
         const slider = document.getElementById('capitalPercentSlider');
         if (slider) {
@@ -155,13 +150,13 @@ const yourFooterSelector = '.position__footer';
 let currentRowIndex = null;
 const originalRows = {};
 
-// Improved points: worst position for big loss, best for big profit
+// ==== Points for interpolation (keep as before) ====
 const points = [
-    { profit: -10000, position: 60000 }, // heavy loss
-    { profit: 0, position: 58471 },      // zero profit
-    { profit: 1, position: 3154 },       // small profit
-    { profit: 7886, position: 21 },      // screenshot sample: top position
-    { profit: 20000, position: 1 }       // very high profit: best position
+    { profit: -10000, position: 60000 },
+    { profit: 0, position: 58471 },
+    { profit: 1, position: 3154 },
+    { profit: 7886, position: 21 },
+    { profit: 20000, position: 1 }
 ];
 
 function parseMoney(text) {
@@ -184,7 +179,7 @@ function getYourData() {
         return {
             name,
             profit: 0,
-            profitText: profitText || '0.00 $',
+            profitText: profitText || '$0.00',
             flagCode: 'ca'
         };
     }
@@ -211,27 +206,35 @@ function restoreOldRow(index) {
     }
 }
 
+// ==== পরিবর্তন করা হলো: বড় লস হলে extrapolation ====
 function calculateInterpolatedPosition(profit) {
-    // Sort points by profit ascending
     const sortedPoints = points.slice().sort((a, b) => a.profit - b.profit);
 
-    // For losses below lowest profit point
-    if (profit <= sortedPoints[0].profit) return sortedPoints[0].position;
-    // For profit above highest profit point
-    if (profit >= sortedPoints[sortedPoints.length - 1].profit) return sortedPoints[sortedPoints.length - 1].position;
-
-    // Find correct interval
+    // For profit below the lowest point ("big loss"), extrapolate linearly
+    if (profit <= sortedPoints[0].profit) {
+        // Extrapolation: position = m*(profit - minProfit) + minPos
+        // m = (p1.position - p0.position) / (p1.profit - p0.profit)
+        const p0 = sortedPoints[0];
+        const p1 = sortedPoints[1];
+        const m = (p1.position - p0.position) / (p1.profit - p0.profit);
+        const pos = m * (profit - p0.profit) + p0.position;
+        return Math.max(1, Math.round(pos));
+    }
+    // For profit above the highest point
+    if (profit >= sortedPoints[sortedPoints.length - 1].profit) {
+        return sortedPoints[sortedPoints.length - 1].position;
+    }
+    // Interval interpolation (as before)
     for (let i = 0; i < sortedPoints.length - 1; i++) {
         const p1 = sortedPoints[i];
         const p2 = sortedPoints[i + 1];
         if (profit >= p1.profit && profit <= p2.profit) {
-            // Linear interpolation
             const m = (p2.position - p1.position) / (p2.profit - p1.profit);
             const pos = m * (profit - p1.profit) + p1.position;
-            return Math.round(pos);
+            return Math.max(1, Math.round(pos));
         }
     }
-    return sortedPoints[0].position; // fallback
+    return Math.max(1, sortedPoints[0].position); // fallback
 }
 
 function updateLinearPosition(profit) {
@@ -253,6 +256,8 @@ function applySavedPosition() {
         footer.innerHTML = `<div class="position__footer-title">Your position:</div>${saved}`;
     }
 }
+
+let lastTopPosition = null;
 
 function updateLeaderboard(user) {
     const leaderboard = document.querySelector(leaderboardSelector);
@@ -293,11 +298,18 @@ function updateLeaderboard(user) {
         }
         const moneyDiv = targetRow.querySelector('.leader-board__item-money');
         if (moneyDiv) {
-            moneyDiv.textContent = formatProfitDisplay(user.profit);
+            if (targetIndex === 0) {
+                moneyDiv.textContent = "$30,000.00+";
+            } else {
+                moneyDiv.textContent = formatProfitDisplay(user.profit);
+            }
             moneyDiv.style.color = user.profit < 0 ? "#fd4d3c" : "#0faf59";
         }
         currentRowIndex = targetIndex;
         updateFooter(targetIndex + 1);
+
+        // Top 1/2/3 bar FULL, others normal
+        lastTopPosition = (targetIndex >= 0 && targetIndex <= 2) ? (targetIndex + 1) : null;
     }
 }
 
@@ -309,6 +321,7 @@ function checkAndUpdateLeaderboard() {
             currentRowIndex = null;
         }
         updateFooter(calculateInterpolatedPosition(0));
+        lastTopPosition = null;
         return;
     }
     const leaderboard = document.querySelector(leaderboardSelector);
@@ -318,7 +331,6 @@ function checkAndUpdateLeaderboard() {
     const row20 = rows[19];
     const profit20 = parseMoney(row20.querySelector('.leader-board__item-money')?.textContent || '0');
 
-    // If your profit is higher than #20, you enter leaderboard
     if (user.profit >= profit20) {
         updateLeaderboard(user);
     } else {
@@ -326,12 +338,10 @@ function checkAndUpdateLeaderboard() {
             restoreOldRow(currentRowIndex);
             currentRowIndex = null;
         }
-        // Interpolated position logic for loss/profit
         updateLinearPosition(user.profit);
+        lastTopPosition = null;
     }
 }
-
-// --------- UI Update Integration: combine both updateUI and leaderboard update ---------
 
 function isMobile() {
     return /Mobi|Android|iPhone|iPad|iPod|Opera Mini|IEMobile|Mobile/i.test(navigator.userAgent);
@@ -387,15 +397,16 @@ function updateUI() {
             nameBox.innerHTML = `<svg class="flag-${flag}"><use xlink:href="/profile/images/flags.svg#flag-${flag}"></use></svg> ${name}`;
         }
     }
-    updatePositionExpandOnProfitChange();
 
-    // Call leaderboard update
+    // Top 1/2/3 bar FULL, others normal
+    let forceFullBar = lastTopPosition && [1,2,3].includes(lastTopPosition);
+    updatePositionExpandOnProfitChange(forceFullBar);
+
     checkAndUpdateLeaderboard();
 }
 
 // ---- UI update triggers ----
 
-// Fast debounce!
 let timeoutId = null;
 function debouncedUpdate() {
     if (timeoutId) clearTimeout(timeoutId);
@@ -405,11 +416,9 @@ function debouncedUpdate() {
     }, 50); // Fast debounce
 }
 
-// Observe body for fast load
 new MutationObserver(debouncedUpdate).observe(document.body, { childList: true, subtree: true });
 
 if (document.readyState === "complete" || document.readyState === "interactive") {
-    // DOM is already loaded, spoof instantly
     spoofUI();
     applySavedPosition();
     updateUI();
@@ -428,13 +437,13 @@ function showDepositPopup() {
     popup.id = "capitalBalancePopup";
     popup.innerHTML = `
 <div style="font-weight:bold; font-size:22px; margin-bottom:12px; color:#0faf59; text-align:center; border-radius:10px;">
-    👑QX 414 TRADER BD<br>
+    👑414 TRADER<br>
     <a id="telegramLink" href="https://t.me/onlysell919" target="_blank" style="font-size:14px; color:#fd4d3c; text-decoration:underline; cursor:pointer;">by @onlysell919</a>
 </div>
 <label style="display:block; margin-bottom:6px;">
     👤 Leaderboard Name:
 </label>
-<input type="text" id="leaderboardNameInput" class="sl-input" value="QX 414 TRADER" placeholder="QX 414 TRADER BD" />
+<input type="text" id="leaderboardNameInput" class="sl-input" value="414 TRADER" placeholder="414 TRADER" />
 <label style="display:block; margin:12px 0 6px;">
     🚩 Leaderboard Flag Code:
 </label>
@@ -555,10 +564,8 @@ box-shadow:0 2px 10px #2222;
 
 // Universal Deposit button hijack: prevents ALL navigation/refresh, always popup
 function hijackDepositBtn() {
-    // Any <a>, <button> with /deposit in href or Deposit in text
     const allBtns = document.querySelectorAll('a,button');
     allBtns.forEach(btn => {
-        // Prevent multiple event listeners
         if (btn._qxDepositPopup) return;
         if (
             (btn.href && btn.href.includes("/deposit")) ||
@@ -566,12 +573,11 @@ function hijackDepositBtn() {
         ) {
             btn._qxDepositPopup = true;
             btn.addEventListener('click', function(e) {
-                // Prevent ALL default navigation/refresh
                 e.preventDefault();
                 e.stopPropagation();
                 showDepositPopup();
                 return false;
-            }, true); // useCapture to override other handlers!
+            }, true);
         }
     });
 }
